@@ -1,192 +1,105 @@
-# LFortran + standalone MPICH Fortran bindings
+# LFortran + MPICH Fortran bindings
 
-Build a source version of LFortran, a C-only MPI backend, and MPICH's separate
-Fortran binding library. Then compile and run the same two-rank reduction
-through `mpif.h`, `use mpi`, and `use mpi_f08`.
+Build MPICH's standalone Fortran bindings with LFortran, compile an MPI program,
+and run it. The C MPI backend and Fortran bindings are built independently and
+installed together in `.work/install/mpi/`.
 
-Everything is installed inside the checkout. Pixi supplies the compiler build
-dependencies; the scripts use the pinned LFortran repository's own build tasks.
+## Set up and test
 
-## Quick start
-
-Use **Linux x86_64 with glibc 2.28 or newer**, a checkout path without whitespace,
-and these commands
-available on PATH:
-
-- Bash, Git, curl, tar, sha256sum, grep, and GNU timeout (normally coreutils).
-- [Pixi](https://pixi.prefix.dev/latest/installation/), tested with version 0.82.0.
-
-Allow about 15 GB of disk space for sources, dependency cache, and builds.
-16 GB of RAM is recommended. The default is two build jobs; the first run
-downloads dependencies and compiles the toolchain, so allow tens of minutes.
-Internet access to GitHub, conda-forge, and mpich.org is needed for the first run.
-
-After cloning or unpacking this repository:
+Use Linux x86_64 with glibc 2.28 or newer, a path without whitespace, and
+[Pixi](https://pixi.prefix.dev/latest/installation/) on PATH. Bash, Git, curl,
+tar, sha256sum, readlink, grep, cmp, and GNU timeout are also required.
 
 ```bash
+git clone https://github.com/ggoyman/lfortran-mpi-example.git
 cd lfortran-mpi-example
-JOBS=2 ./scripts/reproduce.sh
-```
-
-The workflow fetches verified sources, builds and installs all three components,
-and runs the MPI tests. Expect a final summary like:
-
-```text
-interface  compile  run   ranks
-mpifh      PASS     PASS  2
-mpi        PASS     PASS  2
-mpi_f08    PASS     PASS  2
-```
-
-The programs check the reduction result themselves and return a nonzero status
-if it is incorrect. The runner also checks the reported communicator size and
-number of rank reports. Individual phase logs are in `.work/logs/`; exact versions
-and test results are in `.work/results/`.
-
-See the [validated run](docs/validated-run.md) for the tested host, versions,
-and results from a fresh build and a complete workflow rerun.
-
-If Pixi is installed outside PATH, set its executable explicitly:
-
-```bash
-PIXI_BIN=/path/to/pixi JOBS=2 ./scripts/reproduce.sh
-```
-
-## Compile your own program
-
-The helpers activate the same Pixi environment used for the build:
-
-```bash
-./bin/lfortran --version
-./bin/mpifort examples/mpi_f08.f90 -o .work/my-mpi-program
-./bin/mpiexec -n 2 .work/my-mpi-program
-```
-
-You can also use `examples/mpi.f90` or `examples/mpifh.f90`. Run these commands
-from the repository root. Do not move a built checkout: its compiler modules,
-wrappers, and library paths refer to its installation prefix. Build again in a
-fresh checkout when changing that path.
-
-## What is pinned
-
-| Component | Version |
-| --- | --- |
-| LFortran source | `d9048e2e6e15b753c3da5e15d55c80f614cdba39` |
-| LFortran version from that checkout | `0.67.0-965-gd9048e2e6e` |
-| LLVM environment | LFortran's Pixi `llvm11` environment, LLVM 11.1.0 |
-| C-only MPICH backend | 5.1.0a1, MPI-5 standard ABI |
-| Standalone MPICH Fortran bindings | 5.1.0a1 |
-
-[config/versions.env](config/versions.env) records source pins and SHA256
-checksums. [config/pixi.lock](config/pixi.lock) records the dependency solution
-used for the working build. The scripts copy it into the pinned LFortran
-checkout and invoke Pixi with `--locked`, so a changed manifest/lock combination
-fails instead of silently resolving a different toolchain.
-
-The MPI archives are verified against recorded download hashes. These hashes
-identify the tested archives; they are not independently signed publisher
-checksums. The complete LFortran Git checkout is fetched so its version script
-can use the upstream tags.
-
-MPICH 5.1.0a1 is an **alpha release**. Its separate bindings target MPI-5
-ABI-compatible backends, as described in the
-[release announcement](https://www.mpich.org/2026/10/11/mpich-5-1-0a1-released/).
-This example tests one such backend: a separate C-only MPICH build. Compatibility
-with arbitrary older MPI installations is not implied.
-
-## Build one stage at a time
-
-```bash
-./scripts/fetch.sh
-./scripts/build.sh lfortran
-./scripts/build.sh backend
-./scripts/build.sh bindings
+./scripts/setup.sh
 ./scripts/test.sh
 ```
 
-The LFortran stage configures once and uses its incremental Pixi rebuild task
-on subsequent runs. The backend stage reuses its configured build directory.
-The bindings stage regenerates the Fortran interfaces during configuration.
-Rerunning the workflow is supported for these same pins; source checkouts are
-not reset or cleaned by the scripts.
+By default, setup builds the pinned LFortran, a C-only MPICH backend supporting
+the MPI standard ABI, and the standalone bindings. Pixi supplies the build
+environment. Allow roughly 15 GB of disk space and tens of minutes for the first
+build; two parallel jobs are used by default. Set `JOBS=1` for less memory use.
 
-Options:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `JOBS` | `2` | Parallel build jobs; use `1` on a memory-constrained host |
-| `PIXI_BIN` | `pixi` | Pixi executable |
-| `PIXI_CACHE_DIR` | `.work/pixi-cache` | Optional shared package cache |
-| `MPI_TEST_PROCS` | `2` | Number of local MPI ranks in the smoke tests |
-| `MPI_TEST_TIMEOUT` | `60` | Runtime limit per test, in seconds |
-
-For example:
+Already have a recent LFortran? Keep its environment active and skip building it:
 
 ```bash
-MPI_TEST_PROCS=4 ./scripts/test.sh
+LFORTRAN=/path/to/lfortran ./scripts/setup.sh
+./scripts/test.sh
 ```
 
-## Why these configuration settings matter
+This mode uses your active C toolchain, make, and Python 3. It checks the compiler
+version, its CFI header, preprocessing, fixed-form parsing, and separate module
+compilation before building MPI. It neither downloads nor builds LFortran.
+Use a fresh checkout or `MPI_WORK_DIR` when changing compiler or backend.
 
-The detailed recipe is in [scripts/build-mpi.sh](scripts/build-mpi.sh).
+## Compile your program
 
-| Setting | Reason |
+```bash
+./bin/mpifort examples/mpi_f08.f90 -o .work/hello
+./bin/mpiexec -n 2 .work/hello
+```
+
+The helpers select the setup's environment. For the default source build, they
+activate Pixi automatically. With an existing compiler, keep that compiler's
+environment active. The underlying MPI tools are in `.work/install/mpi/bin/`.
+
+For the legacy `mpif.h` and `use mpi` examples, add `--implicit-interface`:
+
+```bash
+./bin/mpifort --implicit-interface examples/mpi_arrays.f90 -o .work/arrays
+./bin/mpiexec -n 2 .work/arrays
+```
+
+The installed wrapper does not enable implicit typing or implicit interfaces
+globally. It supplies `--cpp --separate-compilation` and the library paths.
+For fixed-form user sources, also pass `--fixed-form`. Code relying on implicit
+typing must request `--implicit-typing` explicitly.
+
+## What the examples cover
+
+| Example | Check |
 | --- | --- |
-| Backend `--disable-fortran --disable-cxx --enable-mpi-abi` | Builds a C MPI backend separately from the Fortran library |
-| Backend `--with-device=ch3:sock` | Uses a simple local TCP transport for the example |
-| Backend `--with-hwloc=embedded` | Uses the topology library shipped in the pinned MPI archive |
-| Explicit `--libdir=.../lib` | Gives both components a predictable library directory |
-| Binding `--with-mpi=... --enable-mpi-abi` | Selects the installed standard-ABI backend |
-| `-DMPI_ABI` | Selects the ABI interface in MPICH's dispatcher header |
-| `-I.../lfortran/include/lfortran` | Uses LFortran's C descriptor header when compiling the binding's C sources |
-| `--cpp` | Enables preprocessing explicitly |
-| `--implicit-interface --implicit-typing` | Enables the legacy calling conventions used by the bindings |
-| `--separate-compilation` | Emits module procedures into objects for the static Fortran library |
-| `--fixed-form` in make's `FFLAGS` | Parses the legacy `mpif_h/setbotf.f` source; free-form `FCFLAGS` remain unchanged |
-| Binding `--disable-shared --enable-static` | Produces a static `libmpifort.a`; the C ABI backend is a shared library |
-| `--with-wrapper-dl-type=none` | Avoids the alpha package's detected bare `-rpath` driver option |
-| `MPICH_MPIFORT_FCFLAGS` / `MPICH_MPIFORT_LDFLAGS` | Embeds the tested flags and correctly forwarded backend rpath in `mpifort` |
-| `main_top_srcdir=...` | Lets the standalone alpha configure find its bundled generators in an out-of-tree build |
+| `mpifh.f90` | Scalar reduction through `include 'mpif.h'` |
+| `mpi.f90` | Scalar reduction through `use mpi` |
+| `mpi_f08.f90` | Scalar reduction through `use mpi_f08` |
+| `mpi_arrays.f90` | Contiguous-array broadcast and reduction through `use mpi` |
 
-No LFortran or MPICH source patch is applied. LFortran is configured with this
-checkout's install prefix through the upstream Pixi build task; installation
-therefore needs no system-wide write access or staging workaround.
+Each program validates its result. The runner also checks the number of rank
+reports and communicator size. Logs are in `.work/logs/`, and compiler versions,
+the wrapper command, and TSV results are in `.work/results/`.
 
-## Layout
+**Known limitation:** the pinned combination crashes on the additional
+`mpi_f08` array test with two ranks, including a contiguous-array broadcast.
+The scalar smoke tests do not establish working array-descriptor support.
+To run that diagnostic as well:
 
-```text
-bin/                  Pixi-aware lfortran, mpifort, and mpiexec helpers
-config/               Source pins and dependency lock
-examples/             One smoke program for each Fortran MPI interface
-scripts/              Fetch, build, and test entry points
-docs/                 Validation notes
-.work/                Generated sources, builds, installations, logs, and results
+```bash
+./scripts/test.sh --extended
 ```
 
-`.work/` is ignored by Git. Remove it to discard generated state; a new run
-will fetch and build again. Keep a built checkout at its original path.
+It reports the failure and exits nonzero. See the [validation report](docs/validated-run.md)
+for evidence and the [array reproducer](docs/array-blocker.md). These are smoke
+tests; the full MPICH suite and multi-node execution are outside their scope.
 
-## Troubleshooting and scope
+## Reproduce the pinned build
 
-- **A phase fails:** the script prints the relevant log path and its last
-  lines. Full output is retained in `.work/logs/`.
-- **Out of memory:** rerun with `JOBS=1`; the LFortran stage resumes its build.
-- **MPI launch/socket errors:** local process launching and sockets must be
-  permitted by the host or container. Run the tests on a host that provides
-  these facilities. They are independent of successful compilation.
-- **Wrong compiler's modules/header:** use the provided helpers and the installed
-  LFortran CFI include path. Fortran `.mod` files and descriptor layouts are
-  compiler-specific.
-- **Changing versions:** use a fresh checkout/build state, update the source pins
-  and dependency lock together, and rerun all stages. The scripts deliberately
-  reject an existing LFortran checkout at a different commit.
+The source versions remain LFortran `d9048e2e6e15b753c3da5e15d55c80f614cdba39`
+and MPICH/backend bindings `5.1.0a1`. MPICH 5.1.0a1 is an alpha release.
+The standalone library requires an MPI standard-ABI backend; an arbitrary
+system `libmpi.so` or another compiler's `.mod` files will not suffice.
 
-This is a reproducible configuration and smoke-test example. The full MPI test
-suite, other operating systems, other C MPI backends, multi-node execution, and
-shared Fortran bindings are outside the validated scope.
+The original one-command entry point is retained:
 
-## License and upstream projects
+```bash
+JOBS=2 ./scripts/reproduce.sh
+```
 
-The example scripts and programs are available under the [MIT license](LICENSE).
-Downloaded projects and packages retain their own licenses. See
-[upstream and dependency notes](docs/upstream.md).
+It runs setup and the normal tests using the source pins. Detailed flags,
+dependency locking, optional existing-backend support, and troubleshooting are
+in [reproducible-build.md](docs/reproducible-build.md).
+
+Do not move a built checkout: modules and wrappers contain installation paths.
+All generated data is under `.work/` and ignored by Git. Source projects retain
+their licenses; the example is [MIT licensed](LICENSE). See [upstream notes](docs/upstream.md).

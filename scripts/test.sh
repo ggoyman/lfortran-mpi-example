@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
+case "${1:-}" in
+    --help|-h)
+        echo 'Usage: scripts/test.sh [--extended]'
+        echo 'Default: three scalar interfaces and contiguous use-mpi arrays.'
+        echo 'Extended: also test mpi_f08 arrays/sections (known failure at the pin).'
+        exit 0 ;;
+    ''|--extended) ;;
+    *) die 'Usage: scripts/test.sh [--extended]' ;;
+esac
+load_setup
 check_host
-prepare_dirs
-require_sources
-[[ -x "$FORTRAN_PREFIX/bin/mpifort" ]] || die 'Build the bindings first.'
-[[ -x "$MPI_PREFIX/bin/mpiexec" ]] || die 'Build the C MPI backend first.'
 need timeout
-run_logged smoke-tests pixi_run bash "$PROJECT_ROOT/scripts/test-in-env.sh"
+status=0
+run_logged smoke-tests run_toolchain bash "$PROJECT_ROOT/scripts/internal/test.sh" "$@" || status=$?
 cat "$LOG_DIR/smoke-tests.log"
+exit "$status"

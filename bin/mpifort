@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/../scripts/common.sh"
+load_setup
 check_host
-[[ -x "$FORTRAN_PREFIX/bin/mpifort" ]] || die 'Run scripts/reproduce.sh first.'
-pixi_run "$FORTRAN_PREFIX/bin/mpifort" "$@"
+run_toolchain "$MPI_PREFIX/bin/mpifort" "$@"
